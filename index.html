@@ -293,7 +293,7 @@
                     const response = await fetch(`${appsScriptUrl}?action=pull&section=${section}`);
                     if (!response.ok) throw new Error("Fetch failed");
                     const cloudData = await response.json();
-                    return cloudData;
+					return cloudData.payload; // 取得實際資料
                 } catch (e) {
                     console.error(`Pull Error (${section}):`, e);
                     return null;
