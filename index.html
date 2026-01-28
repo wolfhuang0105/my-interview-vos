@@ -25,7 +25,7 @@
         textarea:focus { outline: none; }
         .item-subject-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem; margin-bottom: 0.75rem; }
         
-        /* AI 生成與冷卻遮罩 */
+        /* AI 生成遮罩 */
         .ai-loading-overlay {
             position: absolute;
             inset: 0;
@@ -50,20 +50,47 @@
             border-radius: inherit;
             transition: all 0.4s ease;
         }
+        /* 全域同步凍結遮罩 */
+        .global-sync-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.98);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(12px);
+        }
         .pulse-text { animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         .spin-slow { animation: spin 3s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .progress-bar-container {
+            width: 280px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            margin-top: 24px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4f46e5, #818cf8);
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 15px rgba(79, 70, 229, 0.5);
+        }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 overflow-hidden text-sm">
+<body class="bg-slate-50 text-slate-900 overflow-x-hidden md:overflow-hidden text-sm">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef, useCallback } = React;
         const apiKey = ""; 
 
-        // --- 全域定義防止 ReferenceError ---
         const tabsMapping = ["intro", "star", "homebase", "seei", "reverse_qs", "vocabulary"];
         const tabs = [
             { name: "自我介紹", icon: "user", desc: "Core Pitch" },
@@ -95,16 +122,15 @@
             return new Blob([buffer], { type: 'audio/wav' });
         }
 
-        // --- 全域調度隊列與熔斷標記 ---
         let requestQueue = Promise.resolve();
         let lastRequestTime = 0;
         let globalIsBlocked = false; 
-        const MIN_RPM_DELAY = 8000; // 強制 8 秒間隔以避免觸發 429 RPM 限制
+        const MIN_RPM_DELAY = 8000; 
 
         const App = () => {
             const [activeTab, setActiveTab] = useState(0);
             const [isGenerating, setIsGenerating] = useState(false);
-            const [apiStatus, setApiStatus] = useState('idle'); // idle, processing, blocked
+            const [apiStatus, setApiStatus] = useState('idle'); 
             const [cooldownSeconds, setCooldownSeconds] = useState(0);
             const [syncTarget, setSyncTarget] = useState(null); 
             const [isPlaying, setIsPlaying] = useState(null);
@@ -114,6 +140,10 @@
             const [sheetUrl, setSheetUrl] = useState("");
             const [userApiKey, setUserApiKey] = useState("");
             
+            // 全域同步狀態
+            const [isGlobalSyncing, setIsGlobalSyncing] = useState(false);
+            const [syncProgress, setSyncProgress] = useState({ current: 0, total: 6, label: "" });
+
             const [systemPrompt, setSystemPrompt] = useState(
                 "你是一位資深的 ASUS 全球電商 PM。你的任務是提供翻譯。嚴禁任何前言、解釋或引號。直接輸出翻譯後的原始文字。語氣精煉、具執行力。單字釋義必須使用「繁體中文」。"
             );
@@ -129,7 +159,6 @@
 
             const notify = (msg, type = 'success') => { setNotification({ message: msg, type }); setTimeout(() => setNotification(null), 5000); };
 
-            // --- 熔斷保護倒數計時 ---
             useEffect(() => {
                 let timer;
                 if (cooldownSeconds > 0) {
@@ -142,15 +171,12 @@
                 return () => clearTimeout(timer);
             }, [cooldownSeconds, apiStatus]);
 
-            // --- 執行 AI 請求 ---
             const askAI = async (prompt, asJson = false) => {
                 if (globalIsBlocked) throw new Error(`API 冷卻鎖定中，請等候 ${cooldownSeconds} 秒。`);
-
                 const executeRequest = async () => {
                     const now = Date.now();
                     const wait = Math.max(0, MIN_RPM_DELAY - (now - lastRequestTime));
                     if (wait > 0) await new Promise(r => setTimeout(r, wait));
-
                     setApiStatus('processing');
                     const finalKey = userApiKey || apiKey;
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${finalKey}`;
@@ -159,34 +185,24 @@
                         systemInstruction: { parts: [{ text: systemPrompt }] },
                         generationConfig: asJson ? { responseMimeType: "application/json" } : {}
                     };
-
                     try {
-                        const res = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-                        
+                        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                         lastRequestTime = Date.now();
-
                         if (res.status === 429) {
                             globalIsBlocked = true;
                             setApiStatus('blocked');
                             setCooldownSeconds(60); 
-                            throw new Error("偵測到 429 頻率限制：RPM 上限已達。系統已啟動熔斷保護，請冷卻 60 秒暫停操作。");
+                            throw new Error("偵測到 429 頻率限制：RPM 上限已達。系統熔斷冷卻中。");
                         }
-
                         if (res.ok) {
                             const result = await res.json();
                             const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
                             if (text) {
                                 setApiStatus('idle');
-                                // 移除 Markdown 標籤並去除多餘空格
                                 return text.replace(/```json|```/g, "").trim();
                             }
                             throw new Error("AI 回傳內容無效");
                         }
-                        
                         const errorData = await res.json();
                         throw new Error(errorData.error?.message || `Error ${res.status}`);
                     } catch (e) {
@@ -194,41 +210,29 @@
                         throw e;
                     }
                 };
-
                 return new Promise((resolve, reject) => {
                     requestQueue = requestQueue.catch(() => {}).then(async () => {
-                        try {
-                            const result = await executeRequest();
-                            resolve(result);
-                        } catch (err) {
-                            reject(err);
-                        }
+                        try { const result = await executeRequest(); resolve(result); } catch (err) { reject(err); }
                     });
                 });
             };
 
             const syncEnglish = async (section, index = null) => {
                 if (apiStatus === 'blocked') return notify(`API 熔斷中，請稍候 ${cooldownSeconds} 秒`, "error");
-                
                 const targetId = index !== null ? `${section}-${index}` : section;
                 if (isGenerating) return; 
-
                 setIsGenerating(true);
                 setSyncTarget(targetId);
-
                 let prompt = "";
                 const isStar = section === 'star';
-                
                 try {
                     const currentSection = data[section];
                     if (section === 'intro') prompt = `Translate to business English (DIRECT CONTENT ONLY): ${currentSection.zh}`;
                     else if (isStar) prompt = `Translate STAR to business English JSON. NO PREAMBLE. NO EXPLANATION. JSON keys: context, action, result. Input: ${JSON.stringify(currentSection[index].zh)}`;
                     else if (section === 'homebase' || section === 'seei') prompt = `Translate to business English (DIRECT CONTENT ONLY): ${currentSection[index].zh}`;
                     else if (section === 'reverse_qs') prompt = `Translate to professional English (DIRECT CONTENT ONLY): ${currentSection[index].zh}`;
-
                     const text = await askAI(prompt, isStar);
                     const newData = { ...data };
-                    
                     if (section === 'intro') newData.intro.en = text;
                     else if (isStar) {
                         const clean = text.match(/\{[\s\S]*\}/)?.[0] || text;
@@ -237,22 +241,14 @@
                     else if (section === 'homebase') newData.homebase[index].en = text;
                     else if (section === 'seei') newData.seei[index].en = text;
                     else if (section === 'reverse_qs') newData.reverse_qs[index].en = text;
-                    
                     setData(newData); notify("AI 同步成功");
-                } catch (e) { 
-                    console.error("AI Error:", e); 
-                    notify(e.message, "error"); 
-                } finally {
-                    setIsGenerating(false);
-                    setSyncTarget(null);
-                }
+                } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
             };
 
             const addSpecificWord = async (word) => {
                 if (apiStatus === 'blocked') return;
                 const clean = word.toLowerCase().replace(/[^a-z]/g, "");
                 if (clean.length < 3 || isGenerating) return;
-                
                 setIsGenerating(true);
                 setSyncTarget('vocabulary');
                 notify(`處理單字: ${clean}...`, 'info');
@@ -264,19 +260,20 @@
                     const idx = newData.vocabulary.findIndex(v => v.word.toLowerCase() === clean);
                     if (idx > -1) newData.vocabulary[idx].count += 1; else newData.vocabulary.push({ ...json, count: 1 });
                     setData(newData); notify(`「${clean}」已入單字庫`);
-                } catch (e) {
-                    notify(e.message, "error");
-                } finally {
-                    setIsGenerating(false);
-                    setSyncTarget(null);
-                }
+                } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
             };
 
             const generateVocabulary = async () => {
                 if (isGenerating || apiStatus === 'blocked') return;
                 setIsGenerating(true);
                 setSyncTarget('vocabulary');
-                const allEn = [data.intro.en, ...data.star.flatMap(s => [s.en.context, s.en.action, s.en.result]), ...data.homebase.map(h => h.en), ...data.seei.map(s => s.en), ...data.reverse_qs.map(r => r.en)].filter(Boolean).join(" ");
+                const allEn = [
+                    data.intro.en, 
+                    ...data.star.flatMap(s => s.en ? [s.en.context, s.en.action, s.en.result] : []), 
+                    ...data.homebase.map(h => h.en), 
+                    ...data.seei.map(s => s.en), 
+                    ...data.reverse_qs.map(r => r.en)
+                ].filter(Boolean).join(" ");
                 const cleanWords = allEn.toLowerCase().replace(/[^a-z ]/g, "").split(/\s+/).filter(w => w.length > 5);
                 const uniqueCandidates = [...new Set(cleanWords)].slice(0, 15);
                 try {
@@ -286,33 +283,52 @@
                     const newData = { ...data };
                     json.forEach(i => { if (!newData.vocabulary.some(v => v.word === i.word)) newData.vocabulary.push({ ...i, count: 1 }); });
                     setData(newData); notify("單字自動生成完成");
-                } catch (e) {
-                    notify(e.message, "error");
-                } finally {
-                    setIsGenerating(false);
-                    setSyncTarget(null);
-                }
+                } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
             };
 
-            // --- 雲端同步 (僅 GAS) ---
+            // --- 精準雲端拉取邏輯 (與 gas.js 1:1 對應) ---
             const handlePull = async (section) => {
-                if (!appsScriptUrl) return notify("請輸入 GAS URL", "error");
+                if (!appsScriptUrl) return null;
                 try {
-                    const res = await fetch(`${appsScriptUrl}?action=pull&section=${section}`);
-                    const cloudData = await res.json();
-                    if (cloudData) setData(prev => ({ ...prev, [section]: cloudData }));
-                    return true;
-                } catch (e) { return false; }
+                    const response = await fetch(`${appsScriptUrl}?action=pull&section=${section}`);
+                    if (!response.ok) throw new Error("Fetch failed");
+                    const cloudData = await response.json();
+                    return cloudData;
+                } catch (e) {
+                    console.error(`Pull Error (${section}):`, e);
+                    return null;
+                }
             };
 
             const pullAll = async () => {
                 if (!appsScriptUrl) return notify("請輸入 GAS URL", "error");
-                notify("資料拉取中...", "info");
-                let count = 0;
-                for (const section of tabsMapping) {
-                    if (await handlePull(section)) count++;
+                
+                setIsGlobalSyncing(true);
+                const tempNewData = { ...data };
+                let successCount = 0;
+
+                try {
+                    for (let i = 0; i < tabsMapping.length; i++) {
+                        const section = tabsMapping[i];
+                        const sectionLabel = tabs.find(t => tabsMapping.indexOf(tabsMapping[tabsMapping.indexOf(section)]) === i)?.name || section;
+                        
+                        setSyncProgress({ current: i + 1, total: tabsMapping.length, label: sectionLabel });
+                        
+                        const cloudData = await handlePull(section);
+                        if (cloudData) {
+                            tempNewData[section] = cloudData;
+                            successCount++;
+                        }
+                        // 模擬小延遲讓進度條平滑
+                        await new Promise(r => setTimeout(r, 400));
+                    }
+                    setData(tempNewData);
+                    notify(`全域同步成功 (${successCount}/${tabsMapping.length})`);
+                } catch (e) {
+                    notify("同步過程發生錯誤，請檢查 GAS 設定", "error");
+                } finally {
+                    setIsGlobalSyncing(false);
                 }
-                notify(`同步完成 (${count}/${tabsMapping.length})`);
             };
 
             const handlePush = async () => {
@@ -320,7 +336,12 @@
                 const section = tabsMapping[activeTab];
                 notify(`上傳 ${section} 中...`, "info");
                 try {
-                    await fetch(appsScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: "push", section, data: data[section] }) });
+                    await fetch(appsScriptUrl, { 
+                        method: 'POST', 
+                        mode: 'no-cors', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ action: "push", section, data: data[section] }) 
+                    });
                     notify("雲端存檔指令已發送");
                 } catch (e) { notify("上傳失敗", "error"); }
             };
@@ -338,7 +359,7 @@
 
             const speak = async (text, id) => {
                 const finalKey = userApiKey || apiKey;
-                if (!finalKey) return notify("等待注入 Key", "error");
+                if (!finalKey || !text) return;
                 if (isPlaying) return; setIsPlaying(id);
                 try {
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${finalKey}`, {
@@ -394,7 +415,16 @@
                                 <Icon name="plus" size={10}/> ADD
                             </button>
                         )}
-                        <button onClick={() => handlePull(tabsMapping[activeTab])} className="bg-white border border-slate-200 text-slate-500 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-50 active:scale-95 shadow-sm">
+                        <button onClick={() => {
+                            const section = tabsMapping[activeTab];
+                            notify(`正在單獨拉取：${title}`, "info");
+                            handlePull(section).then(cloudData => {
+                                if (cloudData) {
+                                    setData(prev => ({ ...prev, [section]: cloudData }));
+                                    notify(`「${title}」拉取成功`);
+                                } else { notify("拉取失敗，請確認 GAS", "error"); }
+                            });
+                        }} className="bg-white border border-slate-200 text-slate-500 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-50 active:scale-95 shadow-sm">
                             <Icon name="download-cloud" size={10}/> PULL
                         </button>
                         <button onClick={handlePush} className="bg-white border border-slate-200 text-indigo-600 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-indigo-50 active:scale-95 shadow-sm">
@@ -438,8 +468,22 @@
             };
 
             return (
-                <div className="h-screen flex flex-col md:flex-row bg-slate-50 overflow-hidden shrink-0">
-                    <nav className="w-full md:w-56 glass-sidebar text-slate-400 p-3 flex flex-col h-full z-20 shrink-0 shadow-2xl">
+                <div className="min-h-screen md:h-screen flex flex-col md:flex-row bg-slate-50 overflow-x-hidden md:overflow-hidden shrink-0">
+                    
+                    {/* 全系統凍結遮罩 */}
+                    {isGlobalSyncing && (
+                        <div className="global-sync-overlay animate-in">
+                            <Icon name="cloud-download" size={56} className="text-indigo-500 spin-slow mb-6" />
+                            <h3 className="text-white font-black text-base uppercase tracking-widest leading-none">Global Intelligence Syncing</h3>
+                            <p className="text-slate-400 font-bold text-[11px] uppercase mt-3 tracking-tighter italic">正在同步區塊：{syncProgress.label} ({syncProgress.current} / {syncProgress.total})</p>
+                            <div className="progress-bar-container">
+                                <div className="progress-bar-fill" style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}></div>
+                            </div>
+                            <span className="text-slate-600 text-[9px] mt-10 uppercase font-black animate-pulse tracking-widest">System Frozen for Data Integrity</span>
+                        </div>
+                    )}
+
+                    <nav className="w-full md:w-56 glass-sidebar text-slate-400 p-3 flex flex-col h-fit md:h-full z-20 shrink-0 shadow-2xl">
                         <div className="mb-3 flex items-center justify-between px-1 shrink-0">
                             <h1 className="text-base font-black text-white tracking-tighter uppercase leading-none">ASUS PM<br/><span className="text-indigo-500 text-[10px] tracking-[0.2em]">LAB PRO</span></h1>
                             <button onClick={pullAll} className="bg-indigo-600/20 text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-600/40 border border-indigo-500/20 transition-all">
@@ -476,10 +520,12 @@
                             ))}
                         </div>
                         
-                        <div className="mt-3 pt-2 border-t border-slate-800 shrink-0">
+                        {/* 語音速度控制器 - pb-16 提升視覺高度 */}
+                        <div className="mt-3 pt-2 border-t border-slate-800 shrink-0 pb-16">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1.5 block px-1">Speech Speed</label>
                             <div className="grid grid-cols-5 gap-0.5">
                                 {[0.5, 0.75, 1.0, 1.25, 1.5].map(s => (
-                                    <button key={s} onClick={() => setPlaybackSpeed(s)} className={`text-[8px] font-black py-1.5 rounded-md transition-all ${playbackSpeed === s ? "bg-indigo-600 text-white shadow-inner" : "bg-slate-800 text-slate-500"}`}>{s}x</button>
+                                    <button key={s} onClick={() => setPlaybackSpeed(s)} className={`text-[8px] font-black py-1.5 rounded-md transition-all ${playbackSpeed === s ? "bg-indigo-600 text-white shadow-inner" : "bg-slate-800 text-slate-500 hover:bg-slate-700"}`}>{s}x</button>
                                 ))}
                             </div>
                         </div>
@@ -526,12 +572,12 @@
                                                 <div key={p} className="grid lg:grid-cols-2 gap-3">
                                                     <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
                                                         <span className="text-[7px] font-black text-slate-400 uppercase mb-1.5 block leading-none">{p} (ZH)</span>
-                                                        <textarea className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600 font-bold leading-relaxed text-[13px]" rows={2} value={item.zh[p]} onChange={(e) => { const nd={...data}; nd.star[idx].zh[p]=e.target.value; setData(nd); }} />
+                                                        <textarea className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600 font-bold leading-relaxed text-[13px]" rows={2} value={item.zh?.[p] || ""} onChange={(e) => { const nd={...data}; if(!nd.star[idx].zh) nd.star[idx].zh={}; nd.star[idx].zh[p]=e.target.value; setData(nd); }} />
                                                     </div>
                                                     <div className="p-3 bg-indigo-50/40 rounded-2xl flex items-start gap-2 border border-indigo-50 shadow-inner relative overflow-hidden">
                                                         {(syncTarget === `star-${idx}` || apiStatus === 'blocked') && <LoadingOverlay />}
-                                                        <button onClick={() => speak(item.en[p], `s-${idx}-${p}`)} className="text-slate-300 hover:text-indigo-600 shrink-0 transition-all p-0.5 mt-0.5"><Icon name="volume-2" size={12}/></button>
-                                                        <div className="text-slate-700 italic font-bold leading-relaxed text-[12px]"><InteractiveText text={item.en[p]} /></div>
+                                                        <button onClick={() => speak(item.en?.[p], `s-${idx}-${p}`)} className="text-slate-300 hover:text-indigo-600 shrink-0 transition-all p-0.5 mt-0.5"><Icon name="volume-2" size={12}/></button>
+                                                        <div className="text-slate-700 italic font-bold leading-relaxed text-[12px]"><InteractiveText text={item.en?.[p]} /></div>
                                                     </div>
                                                 </div>
                                             ))}
