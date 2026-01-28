@@ -1,12 +1,518 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vite App</title>
+    <title>ASUS PM LAB - Wolf Huang Portfolio</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* 統一文字區塊最小高度 */
+        .script-box { min-height: 200px; }
+    </style>
 </head>
-<body>
-    <div id="app"></div>
-    <script type="module" src="./src/main.js"></script>
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        // --- Lucide Icon 組件 ---
+        const Icon = ({ name, size = 20, className = "" }) => {
+            useEffect(() => { 
+                if (window.lucide) window.lucide.createIcons(); 
+            }, [name]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        // --- Helper: PCM 轉 WAV ---
+        function pcmToWav(pcmBase64, sampleRate = 24000) {
+            const byteCharacters = atob(pcmBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) { byteNumbers[i] = byteCharacters.charCodeAt(i); }
+            const pcmData = new Uint8Array(byteNumbers);
+            const buffer = new ArrayBuffer(44 + pcmData.length);
+            const view = new DataView(buffer);
+            const writeString = (offset, string) => { for (let i = 0; i < string.length; i++) { view.setUint8(offset + i, string.charCodeAt(i)); } };
+            writeString(0, 'RIFF');
+            view.setUint32(4, 32 + pcmData.length, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, 1, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2, true);
+            view.setUint16(32, 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, pcmData.length, true);
+            pcmData.forEach((byte, i) => view.setUint8(44 + i, byte));
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState(0);
+            const [isGenerating, setIsGenerating] = useState(false);
+            const [isPlaying, setIsPlaying] = useState(null);
+            const [notification, setNotification] = useState(null);
+            const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+            const [sheetUrl, setSheetUrl] = useState("");
+            const [appsScriptUrl, setAppsScriptUrl] = useState("");
+            const apiKey = ""; // Runtime provides key
+
+            // --- 完整核心腳本數據 ---
+            const [data, setData] = useState({
+                intro: {
+                    zh: `你好，我是黃詳淵 Wolf，一位 PMP 認證、擁有超過 14 年經驗的跨域專案與數位轉型工作者。我的核心專長是：在資源受限、複雜的多利害關係人環境中，把混亂的流程建成可交付、可規模化的結構。\n\n我的職涯分為三個階段：\n1. 6 年音樂創業期：培養了極強的行動力與從零到一的適應力。\n2. 7 年 IT 服務業：從 C#、SQL 等 Hands-on 技術底層，到深入製造業內部規劃數位藍圖。\n3. 近一年 PMO 治理：在 SoftBI 建立跨專案的交付體系，將週報自動化從 3 小時縮減至 30 分鐘。\n\n我已經完成了中小企業從 0 到規模化的循環。現在，我希望將這套能力帶到 ASUS 這樣擁有全球舞台的公司，放大影響力。`,
+                    en: `Hi, I’m Wolf Huang, a PMP-certified professional with over 14 years of experience. My core strength is building structure in complex environments — turning chaos into scalable delivery systems. My career has three phases: music entrepreneurship, IT services, and PMO governance. I've completed the cycle from startup to scale and am ready to amplify my impact at ASUS.`
+                },
+                star: [
+                    {
+                        skill: "跨部門溝通與利害關係人管理",
+                        zh: {
+                            context: "在 SoftBI 擔任 PMO 時，需要管理超過 50 個專案與 20 個團隊，利害關係人包括執行副總、產品經理及技術團隊。",
+                            action: "我模組化管理實務，建立標準化派工模組。利用 AI 驅動效率，將原本需要 3 小時的週報縮短至 30 分鐘，並確保 200 個任務在 5 分鐘內完成派發。",
+                            result: "成功讓專案進度可視化，跨部門溝通成本降低 60%，公司穩定進入新一輪交付階段。"
+                        },
+                        en: {
+                            context: "At SoftBI, I managed 50+ concurrent projects across 20 teams involving executives and technical leads.",
+                            action: "I modularized management practices and established standardized dispatch modules using AI to automate reporting, cutting time from 3 hours to 30 minutes.",
+                            result: "This achieved visualization of project progress and a 60% reduction in coordination overhead."
+                        }
+                    },
+                    {
+                        skill: "需求分析與功能/技術規劃 (PLM/CRM)",
+                        zh: {
+                            context: "在金上晉科技負責 PLM 系統導入，需整合研發到生產的數據邏輯。",
+                            action: "我繪製了詳細的 Current/Future State 流程圖，定義了從零件 BOM 到品質循環的數據流，並將需求轉化為技術規格。",
+                            result: "成功縮短數據同步路徑，提升供應商管理透明度，建立了異質系統整合範例。"
+                        },
+                        en: {
+                            context: "Led PLM system implementation at GBJM Tech, integrating R&D and production data logic.",
+                            action: "I mapped detailed current and future state flow diagrams, defining data flows from Part BOM to quality loops.",
+                            result: "This shortened data synchronization paths and improved supplier management transparency through better implementation."
+                        }
+                    }
+                ],
+                homebase: [
+                    {
+                        q: "你的英文能力是否足以應付跨國工作？",
+                        framework: "Split Framework (Passion -> Tool -> Result)",
+                        zh: "我雖然不是母語人士，但我對技術有極強的熱情。2023 年 AI 問世時我就訂閱服務至今，我透過 Vibe Coding 與 AI 互動學會很多技術。這場面試的準備就是我自主學習能力的證明。我能快速掌握商務溝通所需的『專業精準度』。",
+                        en: "I leverage AI as a force multiplier for communication. Since 2023, I've used GenAI to master complex technical concepts. This preparation demonstrates my ability to achieve professional precision in global business English through adaptive learning."
+                    },
+                    {
+                        q: "你缺乏純電商平台的直接經驗？",
+                        framework: "Extended Path (Complexity -> Architecture -> Value)",
+                        zh: "華碩經營的是全球規模平台。挑戰在於『複雜性與規模化』。我過去在 SME 磨練出的能力，是從架構與治理層面確保專案的可預測性。比起純電商背景，我更能處理總部與 Region 之間的異質系統演進。",
+                        en: "ASUS requires global scalability. My core value lies in governance and architectural thinking to ensure predictability across multi-region systems, aligning HQ and regional stakeholders beyond simple storefront operations."
+                    },
+                    {
+                        q: "缺乏在跨國公司的工作經驗？",
+                        framework: "Seed & Growth (Seed -> Stage -> Action)",
+                        zh: "我想，過去在 SME 從 0 到 1, 1 到 100 的經驗是一個種子，並了解到我人生中的下個里程碑就是類似的路徑但更大的舞台與道路，我會保持一貫的熱情與積極擁抱所有的 dots。",
+                        en: "My experience in SMEs served as an incubator for agility. I see ASUS as the natural next milestone—the same pathfinding logic but on a global stage. I am ready to connect my diverse experiences to drive large-scale impact."
+                    }
+                ],
+                seei: [
+                    {
+                        topic: "我最大的缺點是什麼？",
+                        zh: "我最大的缺點是早期較依賴個人經驗與直覺。但這也驅使我考取 PMP 認證，並學習如何將『個人智慧』轉化為『組織資產』。現在我更傾向於建立流程（Governance）來降低對個體狀態的依賴。",
+                        en: "My weakness was once relying too much on individual experience. To address this, I earned my PMP certification and now focus on building governance frameworks that transform personal insights into scalable organizational assets."
+                    },
+                    {
+                        topic: "我們為什麼該僱用你？",
+                        zh: "因為我是一個能將『混亂轉化為結構』的開拓者（Pathfinder）。ASUS 正在推動 D2C 轉型與 AI 集成，你們需要的不只是執行者，而是一個能同時理解程式語言、業務目標並建立治理機制的橋樑。",
+                        en: "You should hire me because I am a Pathfinder who excels at creating structure out of chaos. As ASUS drives D2C transformation, you need a bridge who speaks both code and business while building global governance."
+                    },
+                    {
+                        topic: "你的工作風格是什麼？",
+                        zh: "我提供強力的『三合一連擊』：首先是動手解決問題的技術力；其次是跨部門領導力；最後是用 PMP 框架實現規模化治理。我追求『敏捷探索路徑，標準化規模影響』。",
+                        en: "I offer a powerful three-point combo: hands-on technical problem-solving, cross-functional leadership, and PMP-driven scalable governance to ensure predictable delivery."
+                    }
+                ],
+                reverse_qs: [
+                    { zh: "ASUS Store 未來在 B2B (CRM) 與 D2C 的整合戰略中，最大的技術挑戰是什麼？", en: "What is the biggest technical challenge in integrating B2B CRM and D2C strategies for the future ASUS Store?" },
+                    { zh: "在全球網站架構下，如何權衡『全球統一標準』與『單一地區的特殊需求』？", en: "How do you balance global standardization with localized regional requirements in your web architecture?" },
+                    { zh: "目前 ASUS AI Hub 如何具體賦能給電商端的專案管理？", en: "How does the ASUS AI Hub currently empower project management within the eCommerce sector?" },
+                    { zh: "團隊目前如何定義電商 PM 在『產品生命週期管理 (PLM)』與『銷售端』之間的銜接角色？", en: "How is the connection between PLM and sales defined for eCommerce PMs in your current workflow?" },
+                    { zh: "在多區域營運中，如何確保 Magento 平台的擴張性與各國支付合規的平衡？", en: "How do you ensure Magento's scalability while maintaining payment and legal compliance across different regions?" },
+                    { zh: "公司對於 D2C 數據應用在產品研發回饋（Feedback Loop）上有什麼樣的期待？", en: "What are the expectations for using D2C data to create a feedback loop for product R&D?" },
+                    { zh: "團隊如何看待 Vibe Coding 工具在提升前端開發與測試效率上的應用？", en: "How does the team view the application of Vibe Coding tools in enhancing frontend development and testing efficiency?" },
+                    { zh: "針對高客單價的 3C 產品，ASUS 如何透過 CRM 提升用戶的回購率？", en: "For high-ticket 3C products, how does ASUS leverage CRM to improve customer loyalty and repurchase rates?" },
+                    { zh: "在跨國協作中，總部 PM 如何有效地協助 Regional PM 處理當地的 First-line 需求？", en: "How does HQ effectively support Regional PMs in handling localized first-line requirements?" },
+                    { zh: "ASUS 正在推動的『Ubiquitous AI』願景，具體會如何改變電商消費者的購物旅程？", en: "How will the 'Ubiquitous AI' vision specifically transform the customer shopping journey on your eCommerce platform?" }
+                ],
+                vocabulary: []
+            });
+
+            // --- 核心功能 ---
+            const notify = (message, type = 'success') => { setNotification({ message, type }); setTimeout(() => setNotification(null), 3000); };
+
+            const speak = async (text, id) => {
+                if (isPlaying) return; setIsPlaying(id);
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: `Say this clearly at speed ${playbackSpeed}: ${text}` }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } } })
+                    });
+                    const result = await res.json();
+                    const pcmData = result.candidates[0].content.parts[0].inlineData.data;
+                    if (pcmData) {
+                        const wavBlob = pcmToWav(pcmData); const audio = new Audio(URL.createObjectURL(wavBlob));
+                        audio.playbackRate = playbackSpeed; audio.onended = () => setIsPlaying(null); audio.play();
+                    }
+                } catch (e) { setIsPlaying(null); }
+            };
+
+            const askAI = async (prompt, system) => {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: system }] } })
+                });
+                return await res.json();
+            };
+
+            const addSpecificWord = async (word) => {
+                const cleanWord = word.toLowerCase().replace(/[^a-z]/g, "");
+                notify(`分析收藏: ${cleanWord}...`, 'info'); setIsGenerating(true);
+                try {
+                    const res = await askAI(`Define "${cleanWord}" for PM interview. JSON {word, zh, desc, difficulty_score}`, "Return raw JSON.");
+                    const json = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, ''));
+                    const newData = { ...data };
+                    const idx = newData.vocabulary.findIndex(v => v.word.toLowerCase() === cleanWord);
+                    if (idx > -1) newData.vocabulary[idx].count += 1; else newData.vocabulary.push({ ...json, count: 1 });
+                    newData.vocabulary.sort((a,b) => b.difficulty_score - a.difficulty_score);
+                    setData(newData); notify(`「${cleanWord}」收藏成功！`);
+                } catch (e) {} setIsGenerating(false);
+            };
+
+            const syncEnglish = async (section, index = null) => {
+                setIsGenerating(true);
+                let prompt = "";
+                if (section === 'intro') prompt = `Translate: ${data.intro.zh}`;
+                else if (section === 'star') prompt = `Translate STAR JSON: ${JSON.stringify(data.star[index].zh)}`;
+                else if (section === 'seei') prompt = `Translate SEEI JSON: ${JSON.stringify(data.seei[index])}`;
+                else if (section === 'reverse') prompt = `Translate: ${data.reverse_qs[index].zh}`;
+                else if (section === 'homebase') prompt = `Translate: ${data.homebase[index].zh}`;
+
+                try {
+                    const res = await askAI(prompt, "Executive Professional English.");
+                    const text = res.candidates[0].content.parts[0].text;
+                    const newData = { ...data };
+                    if (section === 'intro') newData.intro.en = text;
+                    else if (section === 'star') newData.star[index].en = JSON.parse(text.replace(/```json|```/g, ''));
+                    else if (section === 'seei') { const parsed = JSON.parse(text.replace(/```json|```/g, '')); newData.seei[index].en = parsed.en; }
+                    else if (section === 'reverse') newData.reverse_qs[index].en = text;
+                    else if (section === 'homebase') newData.homebase[index].en = text;
+                    setData(newData); notify("AI 同步成功");
+                } catch (e) {} setIsGenerating(false);
+            };
+
+            const generateVocabulary = async () => {
+                setIsGenerating(true);
+                const allEn = [data.intro.en, ...data.star.flatMap(s => [s.en.context, s.en.action, s.en.result]), ...data.homebase.map(h => h.en), ...data.seei.map(s => s.en), ...data.reverse_qs.map(r => r.en)].join(" ");
+                const cleanWords = allEn.toLowerCase().replace(/[^a-z ]/g, "").split(/\s+/);
+                const existing = new Set(data.vocabulary.map(v => v.word.toLowerCase()));
+                const freqMap = {}; cleanWords.forEach(w => { if (w.length > 5) freqMap[w] = (freqMap[w] || 0) + 1; });
+                const newCandidates = Object.keys(freqMap).filter(w => !existing.has(w));
+                if (newCandidates.length === 0) { setIsGenerating(false); notify("沒有新單字", "info"); return; }
+                try {
+                    const res = await askAI(`Extract 10 PM keywords from: ${newCandidates.slice(0, 15).join(",")}. JSON array [{word, zh, desc, difficulty_score}]`, "Return raw JSON.");
+                    const json = JSON.parse(res.candidates[0].content.parts[0].text.replace(/```json|```/g, ''));
+                    const newData = { ...data };
+                    json.forEach(item => { item.count = freqMap[item.word.toLowerCase()] || 1; newData.vocabulary.push(item); });
+                    newData.vocabulary.sort((a,b) => b.difficulty_score - a.difficulty_score);
+                    setData(newData); notify(`追加了 ${json.length} 個新單字`);
+                } catch (e) {} setIsGenerating(false);
+            };
+
+            const syncToCloud = async () => {
+                if (!appsScriptUrl) { notify("請輸入 API URL", "error"); return; }
+                notify("上傳雲端中...", "info");
+                try {
+                    await fetch(appsScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: "push", data: data.vocabulary }) });
+                    notify("同步成功！");
+                } catch (e) { notify("失敗", "error"); }
+            };
+
+            const pullFromCloud = async () => {
+                if (!appsScriptUrl) { notify("請輸入 API URL", "error"); return; }
+                notify("拉取雲端中...", "info");
+                try {
+                    const response = await fetch(appsScriptUrl + "?action=pull");
+                    const cloudData = await response.json();
+                    if (Array.isArray(cloudData)) {
+                        const newData = { ...data }; const localWords = new Set(newData.vocabulary.map(v => v.word.toLowerCase()));
+                        cloudData.forEach(item => { if (!localWords.has(item.word.toLowerCase())) newData.vocabulary.push(item); });
+                        newData.vocabulary.sort((a,b) => b.difficulty_score - a.difficulty_score);
+                        setData(newData); notify("讀取成功！");
+                    }
+                } catch (e) { notify("失敗", "error"); }
+            };
+
+            const InteractiveText = ({ text }) => {
+                if (!text) return null;
+                const words = text.split(/(\s+|[,.;:!?()])/);
+                return (
+                    <div className="leading-relaxed text-base">
+                        {words.map((part, i) => {
+                            if (/^[a-zA-Z]{3,}$/.test(part)) {
+                                return <span key={i} onClick={() => addSpecificWord(part)} className="cursor-pointer hover:bg-indigo-500 hover:text-white rounded px-0.5 transition-all border-b border-dashed border-indigo-300">{part}</span>;
+                            }
+                            return <span key={i}>{part}</span>;
+                        })}
+                    </div>
+                );
+            };
+
+            const tabs = [
+                { name: "自我介紹", icon: "user" },
+                { name: "STAR 範例", icon: "star" },
+                { name: "困難問題", icon: "shield-alert" },
+                { name: "SEE-I 模型", icon: "message-square" },
+                { name: "關鍵反問", icon: "help-circle" },
+                { name: "核心單字", icon: "book-open" }
+            ];
+
+            return (
+                <div className="min-h-screen flex flex-col md:flex-row bg-slate-50">
+                    {/* Sidebar */}
+                    <nav className="w-full md:w-72 bg-white border-r border-slate-200 p-6 flex flex-col h-screen sticky top-0 overflow-y-auto z-20">
+                        <div className="mb-8">
+                            <h1 className="text-2xl font-black text-indigo-700 tracking-tighter">ASUS PM LAB</h1>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">Wolf Huang Portfolio v6.0</p>
+                        </div>
+
+                        <div className="space-y-4 mb-8">
+                            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-inner">
+                                <div className="flex items-center gap-2 mb-3 text-indigo-600 font-black text-[10px] uppercase"><Icon name="gauge" size={14}/> Speed Control</div>
+                                <div className="grid grid-cols-5 gap-1">
+                                    {[0.5, 0.75, 1.0, 1.25, 1.5].map(s => (
+                                        <button key={s} onClick={() => setPlaybackSpeed(s)} className={`text-[10px] font-bold py-2 rounded-lg transition-all ${playbackSpeed === s ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-400 hover:bg-slate-50"}`}>{s}x</button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
+                                <div className="flex items-center gap-2 mb-2 text-indigo-700 font-black text-[10px] uppercase"><Icon name="cloud" size={14}/> Cloud Sync</div>
+                                <input type="password" placeholder="Apps Script URL..." className="w-full text-[10px] p-2 rounded-lg border border-indigo-100 outline-none focus:ring-1 focus:ring-indigo-400" value={appsScriptUrl} onChange={(e) => setAppsScriptUrl(e.target.value)} />
+                                {sheetUrl && <a href={sheetUrl} target="_blank" className="mt-2 text-[9px] text-indigo-600 font-bold flex items-center gap-1"><Icon name="external-link" size={10}/> Open Google Sheet</a>}
+                            </div>
+                        </div>
+
+                        {tabs.map((tab, idx) => (
+                            <button key={idx} onClick={() => setActiveTab(idx)} className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all mb-1 ${activeTab === idx ? "bg-indigo-600 text-white shadow-lg shadow-indigo-200" : "hover:bg-slate-100 text-slate-500"}`}>
+                                <Icon name={tab.icon} size={18} />
+                                <span className="font-bold text-sm">{tab.name}</span>
+                            </button>
+                        ))}
+                    </nav>
+
+                    {/* Main Content */}
+                    <main className="flex-1 p-4 md:p-10 lg:p-12 overflow-y-auto">
+                        <div className="max-w-4xl mx-auto space-y-12 pb-32">
+                            {notification && (
+                                <div className="fixed bottom-8 right-8 z-50 flex items-center gap-3 px-6 py-4 bg-white border border-indigo-100 rounded-3xl shadow-2xl animate-in">
+                                    <Icon name={notification.type === 'success' ? 'check-circle' : 'loader'} size={18} className={notification.type === 'success' ? 'text-emerald-500' : 'text-indigo-500'} />
+                                    <span className="font-bold text-sm text-slate-700">{notification.message}</span>
+                                </div>
+                            )}
+
+                            {/* Section: 自我介紹 */}
+                            {activeTab === 0 && (
+                                <div className="animate-in space-y-6">
+                                    <div className="flex justify-between items-end border-b-2 border-indigo-600 pb-3">
+                                        <h2 className="text-3xl font-black text-slate-800">自我介紹</h2>
+                                        <button onClick={() => syncEnglish('intro')} className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors"><Icon name="refresh-cw" size={16}/> AI Sync</button>
+                                    </div>
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                        <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                                            <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest block mb-2">腳本 (中)</span>
+                                            <textarea className="w-full h-80 bg-transparent border-none focus:ring-0 text-slate-700 text-base p-0 resize-none outline-none leading-relaxed" value={data.intro.zh} onChange={(e) => setData({...data, intro: {...data.intro, zh: e.target.value}})} />
+                                        </div>
+                                        <div className="bg-indigo-50/30 p-5 rounded-[1.5rem] border border-indigo-100 flex flex-col">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Script (EN) - Click to Collect</span>
+                                                <button onClick={() => speak(data.intro.en, 'intro')} className="p-1.5 bg-white shadow-sm rounded-lg text-slate-400 hover:text-indigo-600 transition-all"><Icon name="play" size={14} fill="currentColor"/></button>
+                                            </div>
+                                            <div className="text-slate-700 italic font-medium leading-relaxed overflow-y-auto"><InteractiveText text={data.intro.en} /></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Section: STAR 範例 */}
+                            {activeTab === 1 && (
+                                <div className="animate-in space-y-12">
+                                    <h2 className="text-3xl font-black text-slate-800 italic uppercase">STAR Evidence</h2>
+                                    {data.star.map((item, idx) => (
+                                        <div key={idx} className="space-y-6">
+                                            <div className="flex items-center justify-between border-b-2 border-indigo-600 pb-3">
+                                                <h3 className="text-2xl font-black text-indigo-800">{item.skill}</h3>
+                                                <button onClick={() => syncEnglish('star', idx)} className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors"><Icon name="refresh-cw" size={16}/> AI Sync</button>
+                                            </div>
+                                            {['context', 'action', 'result'].map(part => (
+                                                <div key={part} className="grid md:grid-cols-2 gap-6">
+                                                    <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                                                        <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest block mb-2">{part} (ZH)</span>
+                                                        <textarea className="w-full bg-transparent border-none focus:ring-0 text-slate-600 text-base p-0 resize-none outline-none leading-relaxed" rows={2} value={item.zh[part]} onChange={(e) => { const newData = {...data}; newData.star[idx].zh[part] = e.target.value; setData(newData); }} />
+                                                    </div>
+                                                    <div className="bg-indigo-50/30 p-5 rounded-[1.5rem] border border-indigo-100 flex items-start gap-4">
+                                                        <button onClick={() => speak(item.en[part], `star-${idx}-${part}`)} className={`mt-1 flex-shrink-0 transition-colors ${isPlaying === `star-${idx}-${part}` ? 'text-indigo-600' : 'text-slate-300 hover:text-indigo-400'}`}><Icon name="mic-2" size={18}/></button>
+                                                        <div className="text-slate-700 italic font-semibold leading-relaxed text-base"><InteractiveText text={item.en[part]} /></div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Section: 困難問題 */}
+                            {activeTab === 2 && (
+                                <div className="animate-in space-y-12">
+                                    <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">困難問題策略</h2>
+                                    {data.homebase.map((hb, idx) => (
+                                        <div key={idx} className="space-y-6">
+                                            <div className="flex items-center justify-between border-b-2 border-indigo-600 pb-3">
+                                                <h3 className="text-xl font-bold text-indigo-800">{hb.q}</h3>
+                                                <button onClick={() => syncEnglish('homebase', idx)} className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors"><Icon name="refresh-cw" size={16}/> AI Sync</button>
+                                            </div>
+                                            <div className="grid md:grid-cols-2 gap-6">
+                                                <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100">
+                                                    <span className="text-[8px] font-black text-indigo-400 uppercase block mb-2">回應 (中)</span>
+                                                    <textarea className="w-full h-40 bg-transparent border-none focus:ring-0 text-slate-700 text-base p-0 resize-none outline-none leading-relaxed" value={hb.zh} onChange={(e) => { const newData = {...data}; newData.homebase[idx].zh = e.target.value; setData(newData); }} />
+                                                </div>
+                                                <div className="bg-indigo-50/30 p-5 rounded-[1.5rem] border border-indigo-100 flex flex-col">
+                                                    <div className="flex justify-between items-start mb-4">
+                                                        <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest text-base">Defense (EN)</span>
+                                                        <button onClick={() => speak(hb.en, `hb-${idx}`)} className="p-1.5 bg-white shadow-sm rounded-lg text-slate-400 hover:text-indigo-600"><Icon name="play" size={14} fill="currentColor"/></button>
+                                                    </div>
+                                                    <div className="text-slate-700 italic font-semibold leading-relaxed text-base"><InteractiveText text={hb.en} /></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Section: SEE-I 模型 */}
+                            {activeTab === 3 && (
+                                <div className="animate-in space-y-12">
+                                    <h2 className="text-3xl font-black text-slate-800 uppercase italic tracking-tighter">SEE-I Framework</h2>
+                                    {data.seei.map((s, idx) => (
+                                        <div key={idx} className="space-y-6">
+                                            <div className="flex items-center justify-between border-b-2 border-indigo-600 pb-3">
+                                                <h3 className="text-xl font-bold text-indigo-800">{s.topic}</h3>
+                                                <button onClick={() => syncEnglish('seei', idx)} className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors"><Icon name="refresh-cw" size={16}/> AI Sync</button>
+                                            </div>
+                                            <div className="grid md:grid-cols-2 gap-6">
+                                                <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                                                    <span className="text-[8px] font-black text-indigo-400 uppercase block mb-2">陳述 (中)</span>
+                                                    <textarea className="w-full h-40 bg-transparent border-none focus:ring-0 text-slate-700 text-base p-0 resize-none outline-none leading-relaxed" value={s.zh} onChange={(e) => { const newData = {...data}; newData.seei[idx].zh = e.target.value; setData(newData); }} />
+                                                </div>
+                                                <div className="bg-indigo-50/30 p-5 rounded-[1.5rem] border border-indigo-100 flex flex-col">
+                                                    <div className="flex justify-between items-start mb-4">
+                                                        <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest text-base text-indigo-600">Statement (EN)</span>
+                                                        <button onClick={() => speak(s.en, `seei-${idx}`)} className="p-1.5 bg-white shadow-sm rounded-lg text-slate-400 hover:text-indigo-600 transition-all"><Icon name="play" size={14} fill="currentColor"/></button>
+                                                    </div>
+                                                    <div className="text-slate-700 italic font-semibold leading-relaxed text-base overflow-y-auto"><InteractiveText text={s.en} /></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Section: 關鍵反問 */}
+                            {activeTab === 4 && (
+                                <div className="animate-in space-y-10">
+                                    <div className="flex justify-between items-center border-b-2 border-indigo-600 pb-3">
+                                        <h2 className="text-3xl font-black text-slate-800 tracking-tighter">關鍵反問</h2>
+                                        <button onClick={() => { const newData = {...data}; newData.reverse_qs.push({ zh: "新問題...", en: "New Question..." }); setData(newData); }} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl shadow-lg flex items-center gap-2 hover:scale-105 transition-all text-sm font-bold"><Icon name="plus" size={18}/> 新增問題</button>
+                                    </div>
+                                    <div className="space-y-6">
+                                        {data.reverse_qs.map((rq, idx) => (
+                                            <div key={idx} className="grid md:grid-cols-2 gap-6 group animate-in">
+                                                <div className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm flex flex-col gap-2 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[8px] font-black text-indigo-400 uppercase">Strategic Q {idx+1} (ZH)</span>
+                                                        <button onClick={() => { const newData = {...data}; newData.reverse_qs.splice(idx, 1); setData(newData); }} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><Icon name="trash-2" size={14}/></button>
+                                                    </div>
+                                                    <textarea className="w-full bg-transparent border-none focus:ring-0 text-slate-700 font-bold text-base p-0 resize-none outline-none leading-relaxed" rows={2} value={rq.zh} onChange={(e) => { const newData = {...data}; newData.reverse_qs[idx].zh = e.target.value; setData(newData); }} />
+                                                </div>
+                                                <div className="bg-indigo-50/30 p-5 rounded-[1.5rem] border border-indigo-100 flex flex-col justify-center relative">
+                                                    <div className="absolute top-4 right-4 flex gap-2">
+                                                        <button onClick={() => syncEnglish('reverse', idx)} className="text-[8px] text-indigo-500 font-black uppercase hover:text-indigo-700">AI Sync</button>
+                                                        <button onClick={() => speak(rq.en, `rq-${idx}`)} className="text-slate-300 hover:text-indigo-600"><Icon name="mic-2" size={16}/></button>
+                                                    </div>
+                                                    <div className="text-slate-700 italic font-semibold leading-relaxed text-base pr-10"><InteractiveText text={rq.en} /></div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Section: 核心單字庫 */}
+                            {activeTab === 5 && (
+                                <div className="animate-in space-y-10">
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b-2 border-indigo-600 pb-3">
+                                        <h2 className="text-3xl font-black text-slate-800 tracking-tighter">核心單字庫</h2>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <button onClick={pullFromCloud} className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-100 font-bold text-[11px] flex items-center gap-2"><Icon name="download-cloud" size={14}/> Pull</button>
+                                            <button onClick={syncToCloud} className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl border border-indigo-100 font-bold text-[11px] flex items-center gap-2"><Icon name="upload-cloud" size={14}/> Push</button>
+                                            <button onClick={generateVocabulary} className="bg-indigo-600 text-white px-5 py-2 rounded-xl shadow-lg font-bold text-[11px] flex items-center gap-2 transition-all"><Icon name="refresh-cw" size={14} className={isGenerating ? "animate-spin" : ""}/> Scan</button>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm divide-y divide-slate-100 max-h-[800px] overflow-y-auto custom-scrollbar">
+                                        {data.vocabulary.length > 0 ? data.vocabulary.map((v, idx) => (
+                                            <div key={idx} className="p-8 flex flex-col md:flex-row items-start gap-8 group hover:bg-indigo-50/20 transition-colors">
+                                                <div className="w-full md:w-52 flex-shrink-0">
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <span className="text-2xl font-black text-slate-800 break-words tracking-tight">{v.word}</span>
+                                                        <button onClick={() => speak(v.word, `v-${idx}`)} className="text-slate-300 group-hover:text-indigo-600"><Icon name="volume-2" size={20}/></button>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mb-3 text-[10px] font-black uppercase tracking-widest">
+                                                        <Icon name="trending-up" size={10} className="text-indigo-600"/>
+                                                        <span className="text-slate-400">Freq: {v.count}</span>
+                                                        <span className="text-indigo-600 ml-auto font-bold">{v.zh}</span>
+                                                    </div>
+                                                    <button onClick={() => { const newData = { ...data }; newData.vocabulary.splice(idx, 1); setData(newData); }} className="text-[9px] text-rose-300 hover:text-rose-600 font-black uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-all">Remove</button>
+                                                </div>
+                                                <div className="flex-1 bg-slate-50 p-6 rounded-[1.5rem] relative group/desc">
+                                                    <button onClick={() => speak(v.desc, `v-desc-${idx}`)} className="absolute top-4 right-4 p-1.5 bg-white shadow-sm rounded-lg text-slate-300 hover:text-indigo-600 opacity-0 group-hover/desc:opacity-100 transition-all"><Icon name="play" size={14} fill="currentColor"/></button>
+                                                    <p className="text-base text-slate-600 italic leading-relaxed pr-12">"{v.desc}"</p>
+                                                </div>
+                                            </div>
+                                        )) : <div className="p-32 text-center text-slate-300 italic flex flex-col items-center gap-4"><Icon name="book-open" size={64} className="opacity-10"/><p>點擊腳本單字開始收藏。</p></div>}
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>
