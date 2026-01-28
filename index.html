@@ -4,10 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ASUS PM LAB PRO - Wolf Huang</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap');
@@ -19,17 +22,66 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .interactive-word:hover { background-color: #4f46e5; color: white; border-radius: 4px; }
         .glass-sidebar { background: #0f172a; }
-        .ai-loading-overlay { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.85); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); z-index: 50; border-radius: inherit; }
-        .dark-ai-loading-overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.9); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); z-index: 50; border-radius: inherit; }
-        /* 全域同步遮罩優化 */
-        .global-sync-overlay { position: fixed; inset: 0; background: rgba(7, 10, 19, 0.98); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; backdrop-filter: blur(20px); }
+        textarea:focus { outline: none; }
+        .item-subject-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem; margin-bottom: 0.75rem; }
+        
+        /* AI 生成遮罩 */
+        .ai-loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+            z-index: 50;
+            border-radius: inherit;
+            transition: all 0.4s ease;
+        }
+        .dark-ai-loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+            z-index: 50;
+            border-radius: inherit;
+            transition: all 0.4s ease;
+        }
+        /* 全域同步凍結遮罩 */
+        .global-sync-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.98);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(12px);
+        }
         .pulse-text { animation: pulse 1.5s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         .spin-slow { animation: spin 3s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .progress-bar-container { width: 320px; height: 4px; background: rgba(255, 255, 255, 0.05); border-radius: 20px; margin-top: 32px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.05); }
-        .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #4f46e5, #818cf8, #4f46e5); background-size: 200% 100%; animation: gradient Move 2s linear infinite; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 20px rgba(79, 70, 229, 0.6); }
-        @keyframes gradientMove { 0% { background-position: 100% 0%; } 100% { background-position: -100% 0%; } }
+        
+        .progress-bar-container {
+            width: 280px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            margin-top: 24px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4f46e5, #818cf8);
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 15px rgba(79, 70, 229, 0.5);
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 overflow-x-hidden md:overflow-hidden text-sm">
@@ -37,7 +89,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef, useCallback } = React;
-        const apiKey = ""; // 如果有預設 Key 可填在此
+        const apiKey = ""; 
 
         const tabsMapping = ["intro", "star", "homebase", "seei", "reverse_qs", "vocabulary"];
         const tabs = [
@@ -54,7 +106,6 @@
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
-        // 音訊轉換輔助 (維持原邏輯)
         function pcmToWav(pcmBase64, sampleRate = 24000) {
             const byteCharacters = atob(pcmBase64);
             const byteNumbers = new Array(byteCharacters.length);
@@ -89,6 +140,7 @@
             const [sheetUrl, setSheetUrl] = useState("");
             const [userApiKey, setUserApiKey] = useState("");
             
+            // 全域同步狀態
             const [isGlobalSyncing, setIsGlobalSyncing] = useState(false);
             const [syncProgress, setSyncProgress] = useState({ current: 0, total: 6, label: "" });
 
@@ -107,7 +159,18 @@
 
             const notify = (msg, type = 'success') => { setNotification({ message: msg, type }); setTimeout(() => setNotification(null), 5000); };
 
-            // API 請求邏輯與狀態管理
+            useEffect(() => {
+                let timer;
+                if (cooldownSeconds > 0) {
+                    timer = setTimeout(() => setCooldownSeconds(prev => prev - 1), 1000);
+                } else if (cooldownSeconds === 0 && apiStatus === 'blocked') {
+                    setApiStatus('idle');
+                    globalIsBlocked = false;
+                    notify("冷卻期結束，API 存取已恢復。");
+                }
+                return () => clearTimeout(timer);
+            }, [cooldownSeconds, apiStatus]);
+
             const askAI = async (prompt, asJson = false) => {
                 if (globalIsBlocked) throw new Error(`API 冷卻鎖定中，請等候 ${cooldownSeconds} 秒。`);
                 const executeRequest = async () => {
@@ -129,7 +192,7 @@
                             globalIsBlocked = true;
                             setApiStatus('blocked');
                             setCooldownSeconds(60); 
-                            throw new Error("偵測到 429 頻率限制：系統熔斷冷卻中。");
+                            throw new Error("偵測到 429 頻率限制：RPM 上限已達。系統熔斷冷卻中。");
                         }
                         if (res.ok) {
                             const result = await res.json();
@@ -165,7 +228,7 @@
                 try {
                     const currentSection = data[section];
                     if (section === 'intro') prompt = `Translate to business English (DIRECT CONTENT ONLY): ${currentSection.zh}`;
-                    else if (isStar) prompt = `Translate STAR to business English JSON. Keys: context, action, result. Input: ${JSON.stringify(currentSection[index].zh)}`;
+                    else if (isStar) prompt = `Translate STAR to business English JSON. NO PREAMBLE. NO EXPLANATION. JSON keys: context, action, result. Input: ${JSON.stringify(currentSection[index].zh)}`;
                     else if (section === 'homebase' || section === 'seei') prompt = `Translate to business English (DIRECT CONTENT ONLY): ${currentSection[index].zh}`;
                     else if (section === 'reverse_qs') prompt = `Translate to professional English (DIRECT CONTENT ONLY): ${currentSection[index].zh}`;
                     const text = await askAI(prompt, isStar);
@@ -182,13 +245,55 @@
                 } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
             };
 
-            // GAS 同步邏輯
+            const addSpecificWord = async (word) => {
+                if (apiStatus === 'blocked') return;
+                const clean = word.toLowerCase().replace(/[^a-z]/g, "");
+                if (clean.length < 3 || isGenerating) return;
+                setIsGenerating(true);
+                setSyncTarget('vocabulary');
+                notify(`處理單字: ${clean}...`, 'info');
+                try {
+                    const text = await askAI(`Define "${clean}" for PM in Traditional Chinese. Return ONLY JSON {word, zh, desc, difficulty_score}`, true);
+                    const cleanJson = text.match(/\{[\s\S]*\}/)?.[0] || text;
+                    const json = JSON.parse(cleanJson);
+                    const newData = { ...data };
+                    const idx = newData.vocabulary.findIndex(v => v.word.toLowerCase() === clean);
+                    if (idx > -1) newData.vocabulary[idx].count += 1; else newData.vocabulary.push({ ...json, count: 1 });
+                    setData(newData); notify(`「${clean}」已入單字庫`);
+                } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
+            };
+
+            const generateVocabulary = async () => {
+                if (isGenerating || apiStatus === 'blocked') return;
+                setIsGenerating(true);
+                setSyncTarget('vocabulary');
+                const allEn = [
+                    data.intro.en, 
+                    ...data.star.flatMap(s => s.en ? [s.en.context, s.en.action, s.en.result] : []), 
+                    ...data.homebase.map(h => h.en), 
+                    ...data.seei.map(s => s.en), 
+                    ...data.reverse_qs.map(r => r.en)
+                ].filter(Boolean).join(" ");
+                const cleanWords = allEn.toLowerCase().replace(/[^a-z ]/g, "").split(/\s+/).filter(w => w.length > 5);
+                const uniqueCandidates = [...new Set(cleanWords)].slice(0, 15);
+                try {
+                    const text = await askAI(`Pick 8 keywords from [${uniqueCandidates.join(",")}] for a PM. Traditional Chinese definitions. Return ONLY JSON array.`, true);
+                    const cleanJson = text.match(/\[[\s\S]*\]/)?.[0] || text;
+                    const json = JSON.parse(cleanJson);
+                    const newData = { ...data };
+                    json.forEach(i => { if (!newData.vocabulary.some(v => v.word === i.word)) newData.vocabulary.push({ ...i, count: 1 }); });
+                    setData(newData); notify("單字自動生成完成");
+                } catch (e) { notify(e.message, "error"); } finally { setIsGenerating(false); setSyncTarget(null); }
+            };
+
+            // --- 精準雲端拉取邏輯 (與 gas.js 1:1 對應) ---
             const handlePull = async (section) => {
                 if (!appsScriptUrl) return null;
                 try {
                     const response = await fetch(`${appsScriptUrl}?action=pull&section=${section}`);
                     if (!response.ok) throw new Error("Fetch failed");
-                    return await response.json();
+                    const cloudData = await response.json();
+                    return cloudData;
                 } catch (e) {
                     console.error(`Pull Error (${section}):`, e);
                     return null;
@@ -197,26 +302,33 @@
 
             const pullAll = async () => {
                 if (!appsScriptUrl) return notify("請輸入 GAS URL", "error");
+                
                 setIsGlobalSyncing(true);
                 const tempNewData = { ...data };
                 let successCount = 0;
+
                 try {
                     for (let i = 0; i < tabsMapping.length; i++) {
                         const section = tabsMapping[i];
-                        const sectionLabel = tabs[i]?.name || section;
+                        const sectionLabel = tabs.find(t => tabsMapping.indexOf(tabsMapping[tabsMapping.indexOf(section)]) === i)?.name || section;
+                        
                         setSyncProgress({ current: i + 1, total: tabsMapping.length, label: sectionLabel });
+                        
                         const cloudData = await handlePull(section);
                         if (cloudData) {
                             tempNewData[section] = cloudData;
                             successCount++;
                         }
+                        // 模擬小延遲讓進度條平滑
                         await new Promise(r => setTimeout(r, 400));
                     }
                     setData(tempNewData);
                     notify(`全域同步成功 (${successCount}/${tabsMapping.length})`);
                 } catch (e) {
-                    notify("同步過程發生錯誤", "error");
-                } finally { setIsGlobalSyncing(false); }
+                    notify("同步過程發生錯誤，請檢查 GAS 設定", "error");
+                } finally {
+                    setIsGlobalSyncing(false);
+                }
             };
 
             const handlePush = async () => {
@@ -225,17 +337,30 @@
                 notify(`上傳 ${section} 中...`, "info");
                 try {
                     await fetch(appsScriptUrl, { 
-                        method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, 
+                        method: 'POST', 
+                        mode: 'no-cors', 
+                        headers: { 'Content-Type': 'application/json' }, 
                         body: JSON.stringify({ action: "push", section, data: data[section] }) 
                     });
                     notify("雲端存檔指令已發送");
                 } catch (e) { notify("上傳失敗", "error"); }
             };
 
+            const addItem = (section) => {
+                const newData = { ...data };
+                if (section === 'star') newData.star.push({ skill: "新案例標題", zh: {context: "", action: "", result: ""}, en: {context: "", action: "", result: ""} });
+                else if (section === 'homebase') newData.homebase.push({ q: "新困難問題?", framework: "Framework", zh: "", en: "" });
+                else if (section === 'seei') newData.seei.push({ topic: "新主題概念", zh: "", en: "" });
+                else if (section === 'reverse_qs') newData.reverse_qs.push({ zh: "新的反問問題?", en: "" });
+                setData(newData);
+            };
+
+            const deleteItem = (section, index) => { const newData = { ...data }; newData[section].splice(index, 1); setData(newData); };
+
             const speak = async (text, id) => {
                 const finalKey = userApiKey || apiKey;
-                if (!finalKey || !text || isPlaying) return;
-                setIsPlaying(id);
+                if (!finalKey || !text) return;
+                if (isPlaying) return; setIsPlaying(id);
                 try {
                     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${finalKey}`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -255,7 +380,26 @@
                 } catch (e) { setIsPlaying(null); }
             };
 
-            // 組件渲染優化
+            const ItemSubject = ({ index, title, onChange, onSync, onDelete }) => (
+                <div className="item-subject-row shrink-0">
+                    <div className="flex items-start gap-3 flex-1">
+                        {index !== undefined && <div className="bg-indigo-600 text-white w-5 h-5 rounded-md flex items-center justify-center font-black text-[9px] mt-1 flex-shrink-0">{index + 1}</div>}
+                        <textarea 
+                            className="text-sm font-black text-slate-800 bg-transparent border-none p-0 focus:ring-0 w-full resize-none leading-tight" 
+                            rows={1}
+                            style={{ height: 'auto' }}
+                            value={title} 
+                            onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                            onChange={(e) => onChange(e.target.value)} 
+                        />
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+                        <button disabled={isGenerating || apiStatus === 'blocked'} onClick={onSync} className={`p-1 transition-all ${apiStatus === 'blocked' ? 'text-rose-300' : (isGenerating ? 'text-slate-100' : 'text-slate-300 hover:text-indigo-600')}`}><Icon name="sparkles" size={14}/></button>
+                        <button onClick={onDelete} className="text-slate-200 hover:text-rose-500 p-1 transition-all"><Icon name="trash-2" size={14}/></button>
+                    </div>
+                </div>
+            );
+
             const SectionHeader = ({ title, desc, onSyncAI, onAdd }) => (
                 <div className="mb-4 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm animate-in flex flex-col md:flex-row md:items-center justify-between gap-2 shrink-0">
                     <div className="flex items-center gap-2">
@@ -266,78 +410,105 @@
                         </div>
                     </div>
                     <div className="flex items-center gap-1.5">
-                        {onAdd && <button onClick={onAdd} className="bg-slate-900 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-800 active:scale-95 shadow-sm mr-1"><Icon name="plus" size={10}/> ADD</button>}
-                        <button onClick={() => handlePull(tabsMapping[activeTab]).then(d => d && setData(p => ({...p, [tabsMapping[activeTab]]: d})))} className="bg-white border border-slate-200 text-slate-500 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-50 shadow-sm"><Icon name="download-cloud" size={10}/> PULL</button>
-                        <button onClick={handlePush} className="bg-white border border-slate-200 text-indigo-600 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-indigo-50 shadow-sm"><Icon name="upload-cloud" size={10}/> PUSH</button>
-                        {onSyncAI && <button disabled={isGenerating || apiStatus === 'blocked'} onClick={onSyncAI} className={`px-3 py-1.5 rounded-lg shadow-md text-[9px] font-black flex items-center gap-1 transition-all ${apiStatus === 'blocked' ? 'bg-rose-100 text-rose-500' : (isGenerating ? 'bg-slate-100' : 'bg-indigo-600 text-white')}`}><Icon name={apiStatus === 'blocked' ? "alert-triangle" : "sparkles"} size={10}/> {apiStatus === 'blocked' ? `LOCK (${cooldownSeconds}s)` : 'AI SYNC'}</button>}
+                        {onAdd && (
+                            <button onClick={onAdd} className="bg-slate-900 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-800 active:scale-95 shadow-sm mr-1">
+                                <Icon name="plus" size={10}/> ADD
+                            </button>
+                        )}
+                        <button onClick={() => {
+                            const section = tabsMapping[activeTab];
+                            notify(`正在單獨拉取：${title}`, "info");
+                            handlePull(section).then(cloudData => {
+                                if (cloudData) {
+                                    setData(prev => ({ ...prev, [section]: cloudData }));
+                                    notify(`「${title}」拉取成功`);
+                                } else { notify("拉取失敗，請確認 GAS", "error"); }
+                            });
+                        }} className="bg-white border border-slate-200 text-slate-500 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-slate-50 active:scale-95 shadow-sm">
+                            <Icon name="download-cloud" size={10}/> PULL
+                        </button>
+                        <button onClick={handlePush} className="bg-white border border-slate-200 text-indigo-600 px-2.5 py-1.5 rounded-lg text-[9px] font-black flex items-center gap-1 hover:bg-indigo-50 active:scale-95 shadow-sm">
+                            <Icon name="upload-cloud" size={10}/> PUSH
+                        </button>
+                        {onSyncAI && (
+                            <button disabled={isGenerating || apiStatus === 'blocked'} onClick={onSyncAI} className={`px-3 py-1.5 rounded-lg shadow-md text-[9px] font-black flex items-center gap-1 transition-all ${apiStatus === 'blocked' ? 'bg-rose-100 text-rose-500 cursor-not-allowed border border-rose-200' : (isGenerating ? 'bg-slate-100 text-slate-400' : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95')}`}>
+                                <Icon name={apiStatus === 'blocked' ? "alert-triangle" : "sparkles"} size={10} className={isGenerating ? "animate-spin" : ""}/> 
+                                {apiStatus === 'blocked' ? `鎖定中 (${cooldownSeconds}s)` : 'AI SYNC'}
+                            </button>
+                        )}
                     </div>
                 </div>
             );
 
+            const InteractiveText = ({ text }) => {
+                if (!text) return <span className="text-slate-300 italic opacity-50 uppercase text-[9px] font-black tracking-widest">Awaiting Intel...</span>;
+                return (
+                    <div className="leading-relaxed">
+                        {text.split(/(\s+|[,.;:!?()])/).map((part, i) => {
+                            if (/^[a-zA-Z]{3,}$/.test(part)) {
+                                return <span key={i} onClick={() => addSpecificWord(part)} className="cursor-pointer border-b border-dashed border-indigo-200 interactive-word px-0.5 transition-all">{part}</span>;
+                            }
+                            return <span key={i}>{part}</span>;
+                        })}
+                    </div>
+                );
+            };
+
+            const LoadingOverlay = ({ dark = false }) => {
+                const isBlocked = apiStatus === 'blocked';
+                const label = isBlocked ? `頻率受限，熔斷保護 (${cooldownSeconds}s)...` : "智慧運算中...";
+                return (
+                    <div className={dark ? "dark-ai-loading-overlay" : "ai-loading-overlay"}>
+                        <div className="flex flex-col items-center gap-2">
+                            <Icon name={isBlocked ? "shield-alert" : "sparkles"} size={24} className={`${isBlocked ? 'text-rose-400' : 'text-indigo-500'} ${!isBlocked && 'spin-slow'}`} />
+                            <span className={`font-black text-[9px] uppercase tracking-tighter pulse-text ${dark ? 'text-indigo-200' : (isBlocked ? 'text-rose-600' : 'text-indigo-600')}`}>{label}</span>
+                        </div>
+                    </div>
+                );
+            };
+
             return (
                 <div className="min-h-screen md:h-screen flex flex-col md:flex-row bg-slate-50 overflow-x-hidden md:overflow-hidden shrink-0">
                     
-                    {/* 優化後的全系統凍結遮罩 */}
+                    {/* 全系統凍結遮罩 */}
                     {isGlobalSyncing && (
                         <div className="global-sync-overlay animate-in">
-                            <div className="relative mb-10">
-                                <div className="absolute inset-0 bg-indigo-500/10 blur-3xl rounded-full"></div>
-                                <Icon name="cloud-download" size={64} className="text-indigo-500 spin-slow relative z-10" />
-                            </div>
-                            
-                            <div className="text-center">
-                                <h3 className="text-white font-black text-xl uppercase tracking-[0.3em] leading-none mb-4">Intel Sync Lock</h3>
-                                <div className="flex items-center justify-center gap-3">
-                                    <span className="h-px w-6 bg-slate-800"></span>
-                                    <p className="text-indigo-400 font-bold text-[11px] uppercase tracking-widest italic">
-                                        Module: {syncProgress.label} ({syncProgress.current} / {syncProgress.total})
-                                    </p>
-                                    <span className="h-px w-6 bg-slate-800"></span>
-                                </div>
-                            </div>
-
-                            <div className="progress-bar-container relative">
+                            <Icon name="cloud-download" size={56} className="text-indigo-500 spin-slow mb-6" />
+                            <h3 className="text-white font-black text-base uppercase tracking-widest leading-none">Global Intelligence Syncing</h3>
+                            <p className="text-slate-400 font-bold text-[11px] uppercase mt-3 tracking-tighter italic">正在同步區塊：{syncProgress.label} ({syncProgress.current} / {syncProgress.total})</p>
+                            <div className="progress-bar-container">
                                 <div className="progress-bar-fill" style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}></div>
-                                <span className="absolute -bottom-5 right-0 text-[9px] font-black text-slate-600">
-                                    {Math.round((syncProgress.current / syncProgress.total) * 100)}% COMPLETE
-                                </span>
                             </div>
-
-                            <div className="mt-14 flex flex-col items-center gap-5">
-                                <div className="flex gap-2.5">
-                                    {tabsMapping.map((_, idx) => (
-                                        <div key={idx} className={`w-2 h-2 rounded-full transition-all duration-700 ${idx < syncProgress.current ? 'bg-indigo-500 shadow-[0_0_12px_rgba(79,70,229,1)]' : 'bg-slate-900'}`}></div>
-                                    ))}
-                                </div>
-                                <span className="text-slate-700 text-[9px] uppercase font-black tracking-[0.5em] animate-pulse">System Data Integrity Protected</span>
-                            </div>
+                            <span className="text-slate-600 text-[9px] mt-10 uppercase font-black animate-pulse tracking-widest">System Frozen for Data Integrity</span>
                         </div>
                     )}
 
                     <nav className="w-full md:w-56 glass-sidebar text-slate-400 p-3 flex flex-col h-fit md:h-full z-20 shrink-0 shadow-2xl">
                         <div className="mb-3 flex items-center justify-between px-1 shrink-0">
                             <h1 className="text-base font-black text-white tracking-tighter uppercase leading-none">ASUS PM<br/><span className="text-indigo-500 text-[10px] tracking-[0.2em]">LAB PRO</span></h1>
-                            <button onClick={pullAll} className="bg-indigo-600/20 text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-600/40 border border-indigo-500/20 transition-all"><Icon name="refresh-cw" size={12}/></button>
+                            <button onClick={pullAll} className="bg-indigo-600/20 text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-600/40 border border-indigo-500/20 transition-all">
+                                <Icon name="refresh-cw" size={12}/>
+                            </button>
                         </div>
 
-                        <div className="space-y-1.5 mb-4 shrink-0">
-                            <input type="password" placeholder="API Key" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 rounded-lg border border-slate-700 text-white outline-none" value={userApiKey} onChange={(e) => setUserApiKey(e.target.value)} />
-                            <input type="text" placeholder="GAS URL" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 rounded-lg border border-slate-700 text-white outline-none" value={appsScriptUrl} onChange={(e) => setAppsScriptUrl(e.target.value)} />
-                            
-                            {/* 增加 Google Sheet 跳轉按鈕 */}
-                            <div className="relative group">
-                                <input type="text" placeholder="Sheet URL" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 pr-8 rounded-lg border border-slate-700 text-white outline-none" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} />
-                                {sheetUrl && (
-                                    <a href={sheetUrl} target="_blank" className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-indigo-400 transition-colors">
-                                        <Icon name="external-link" size={10} />
-                                    </a>
-                                )}
+                        <div className="space-y-1 mb-3 shrink-0">
+                            <input type="password" placeholder="API Key" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 rounded-lg border border-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 text-white" value={userApiKey} onChange={(e) => setUserApiKey(e.target.value)} />
+                            <input type="text" placeholder="GAS URL" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 rounded-lg border border-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 text-white" value={appsScriptUrl} onChange={(e) => setAppsScriptUrl(e.target.value)} />
+                            <input type="text" placeholder="Sheet URL" className="w-full bg-slate-800 text-[9px] py-1.5 pl-3 rounded-lg border border-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 text-white" value={sheetUrl} onChange={(e) => setSheetUrl(e.target.value)} />
+                        </div>
+
+                        {apiStatus === 'blocked' && (
+                            <div className="mb-3 bg-rose-950/50 p-2.5 rounded-xl border border-rose-500/30 text-rose-400 flex items-center gap-2 animate-pulse shrink-0">
+                                <Icon name="clock" size={12}/>
+                                <span className="font-black text-[8px] uppercase tracking-widest">RPM 鎖定: {cooldownSeconds}s</span>
                             </div>
-                            {sheetUrl && (
-                                <button onClick={() => window.open(sheetUrl, '_blank')} className="w-full bg-slate-700/30 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 text-[8px] font-black py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest border border-slate-700/50">
-                                    <Icon name="table" size={10} /> Open Sheet
-                                </button>
-                            )}
+                        )}
+
+                        <div className="mb-3 bg-slate-800/50 p-2 rounded-xl border border-slate-700 shrink-0">
+                            <label className="text-[8px] font-black text-indigo-400 uppercase tracking-widest block mb-1 leading-none flex items-center gap-1">
+                                <Icon name="settings" size={8}/> AI PROMPT
+                            </label>
+                            <textarea className="w-full bg-transparent text-[7px] text-slate-300 leading-tight border-none focus:ring-0 p-0 resize-none h-10 custom-scrollbar" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
                         </div>
 
                         <div className="flex-1 space-y-0.5 overflow-y-auto custom-scrollbar pr-0.5">
@@ -348,32 +519,138 @@
                                 </button>
                             ))}
                         </div>
+                        
+                        {/* 語音速度控制器 - pb-16 提升視覺高度 */}
+                        <div className="mt-3 pt-2 border-t border-slate-800 shrink-0 pb-16">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1.5 block px-1">Speech Speed</label>
+                            <div className="grid grid-cols-5 gap-0.5">
+                                {[0.5, 0.75, 1.0, 1.25, 1.5].map(s => (
+                                    <button key={s} onClick={() => setPlaybackSpeed(s)} className={`text-[8px] font-black py-1.5 rounded-md transition-all ${playbackSpeed === s ? "bg-indigo-600 text-white shadow-inner" : "bg-slate-800 text-slate-500 hover:bg-slate-700"}`}>{s}x</button>
+                                ))}
+                            </div>
+                        </div>
                     </nav>
 
                     <main className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-6 custom-scrollbar relative">
-                        {/* 內容區塊邏輯維持原狀，僅 activeTab 0 ~ 5 的組件渲染 */}
-                        {activeTab === 0 && (
-                            <div className="max-w-4xl mx-auto animate-in">
-                                <SectionHeader title={tabs[0].name} desc={tabs[0].desc} onSyncAI={() => syncEnglish('intro')} />
-                                <div className="grid lg:grid-cols-2 gap-4">
-                                    <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative">
-                                        <span className="text-[8px] font-black text-indigo-500 uppercase mb-3 block bg-indigo-50 w-fit px-2 py-0.5 rounded leading-none">ZH INPUT</span>
-                                        <textarea className="w-full h-72 bg-transparent border-none focus:ring-0 text-slate-700 text-sm p-0 resize-none font-bold shadow-inner" value={data.intro.zh} onChange={(e) => setData({...data, intro: {...data.intro, zh: e.target.value}})} />
-                                    </div>
-                                    <div className="bg-slate-900 p-5 rounded-[2rem] shadow-2xl flex flex-col relative h-72 overflow-hidden">
-                                        {(syncTarget === 'intro' || apiStatus === 'blocked') && <div className="dark-ai-loading-overlay"><Icon name="sparkles" size={24} className="text-indigo-500 spin-slow"/><span className="text-white text-[9px] font-black ml-2 uppercase pulse-text">Computing...</span></div>}
-                                        <div className="flex justify-between items-center mb-3">
-                                            <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest leading-none">EN OUTPUT</span>
-                                            <button onClick={() => speak(data.intro.en, 'intro')} className="w-7 h-7 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg hover:scale-110"><Icon name="play" size={12} fill="currentColor"/></button>
+                        <div className="max-w-4xl mx-auto pb-16">
+                            {notification && (
+                                <div className="fixed top-4 right-4 z-50 flex items-center gap-2 px-3 py-2 bg-white border border-indigo-100 rounded-xl shadow-2xl animate-in">
+                                    <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${notification.type === 'error' ? 'bg-rose-500' : 'bg-indigo-600'}`}></div>
+                                    <span className="font-black text-[9px] text-slate-700 uppercase tracking-tight">{notification.message}</span>
+                                </div>
+                            )}
+
+                            {activeTab === 0 && (
+                                <div className="animate-in">
+                                    <SectionHeader title={tabs[0].name} desc={tabs[0].desc} onSyncAI={() => syncEnglish('intro')} />
+                                    <div className="grid lg:grid-cols-2 gap-4">
+                                        <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm relative">
+                                            <span className="text-[8px] font-black text-indigo-500 uppercase mb-3 block bg-indigo-50 w-fit px-2 py-0.5 rounded leading-none">ZH INPUT</span>
+                                            <textarea className="w-full h-72 bg-transparent border-none focus:ring-0 text-slate-700 text-sm p-0 resize-none font-bold shadow-inner" value={data.intro.zh} onChange={(e) => setData({...data, intro: {...data.intro, zh: e.target.value}})} />
                                         </div>
-                                        <div className="text-white/80 italic font-semibold leading-relaxed text-xs overflow-y-auto custom-scrollbar pr-2">
-                                            {data.intro.en || "Awaiting AI Analysis..."}
+                                        <div className="bg-slate-900 p-5 rounded-[2rem] shadow-2xl flex flex-col relative h-72 overflow-hidden">
+                                            {(syncTarget === 'intro' || apiStatus === 'blocked') && <LoadingOverlay dark />}
+                                            <div className="flex justify-between items-center mb-3 relative z-10">
+                                                <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest leading-none">EN OUTPUT</span>
+                                                <button onClick={() => speak(data.intro.en, 'intro')} className="w-7 h-7 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg hover:scale-110"><Icon name="play" size={12} fill="currentColor"/></button>
+                                            </div>
+                                            <div className="text-white/80 italic font-semibold leading-relaxed text-xs overflow-y-auto custom-scrollbar relative z-10 pr-2">
+                                                <InteractiveText text={data.intro.en} />
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )}
-                        {/* 其他分頁維持原邏輯，此處僅示範分頁 0 ... */}
+                            )}
+
+                            {activeTab === 1 && (
+                                <div className="space-y-4 animate-in">
+                                    <SectionHeader title={tabs[1].name} desc={tabs[1].desc} onAdd={() => addItem('star')} />
+                                    {data.star.map((item, idx) => (
+                                        <div key={idx} className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm space-y-3">
+                                            <ItemSubject index={idx} title={item.skill} onChange={(v) => { const nd={...data}; nd.star[idx].skill=v; setData(nd); }} onSync={() => syncEnglish('star', idx)} onDelete={() => deleteItem('star', idx)} />
+                                            {['context', 'action', 'result'].map(p => (
+                                                <div key={p} className="grid lg:grid-cols-2 gap-3">
+                                                    <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                                                        <span className="text-[7px] font-black text-slate-400 uppercase mb-1.5 block leading-none">{p} (ZH)</span>
+                                                        <textarea className="w-full bg-transparent border-none p-0 focus:ring-0 text-slate-600 font-bold leading-relaxed text-[13px]" rows={2} value={item.zh?.[p] || ""} onChange={(e) => { const nd={...data}; if(!nd.star[idx].zh) nd.star[idx].zh={}; nd.star[idx].zh[p]=e.target.value; setData(nd); }} />
+                                                    </div>
+                                                    <div className="p-3 bg-indigo-50/40 rounded-2xl flex items-start gap-2 border border-indigo-50 shadow-inner relative overflow-hidden">
+                                                        {(syncTarget === `star-${idx}` || apiStatus === 'blocked') && <LoadingOverlay />}
+                                                        <button onClick={() => speak(item.en?.[p], `s-${idx}-${p}`)} className="text-slate-300 hover:text-indigo-600 shrink-0 transition-all p-0.5 mt-0.5"><Icon name="volume-2" size={12}/></button>
+                                                        <div className="text-slate-700 italic font-bold leading-relaxed text-[12px]"><InteractiveText text={item.en?.[p]} /></div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {[2, 3].includes(activeTab) && (
+                                <div className="space-y-4 animate-in">
+                                    <SectionHeader title={tabs[activeTab].name} desc={tabs[activeTab].desc} onAdd={() => addItem(activeTab === 2 ? 'homebase' : 'seei')} />
+                                    {(activeTab === 2 ? data.homebase : data.seei).map((item, idx) => (
+                                        <div key={idx} className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm space-y-3">
+                                            <ItemSubject index={idx} title={activeTab === 2 ? item.q : item.topic} onChange={(v) => { const nd={...data}; if(activeTab===2) nd.homebase[idx].q=v; else nd.seei[idx].topic=v; setData(nd); }} onSync={() => syncEnglish(activeTab === 2 ? 'homebase' : 'seei', idx)} onDelete={() => deleteItem(activeTab === 2 ? 'homebase' : 'seei', idx)} />
+                                            <div className="grid lg:grid-cols-2 gap-3">
+                                                <textarea className="w-full h-24 bg-slate-50 p-4 rounded-2xl border border-slate-100 focus:ring-0 text-slate-700 font-bold text-xs resize-none shadow-inner" value={item.zh} onChange={(e) => { const nd={...data}; if(activeTab===2) nd.homebase[idx].zh=e.target.value; else nd.seei[idx].zh=e.target.value; setData(nd); }} />
+                                                <div className="bg-slate-900 p-4 rounded-2xl text-white overflow-y-auto h-24 border border-slate-800 pr-2 relative shadow-inner">
+                                                    {(syncTarget === `${activeTab === 2 ? 'homebase' : 'seei'}-${idx}` || apiStatus === 'blocked') && <LoadingOverlay dark />}
+                                                    <div className="flex justify-between mb-2">
+                                                        <span className="text-[7px] font-black text-indigo-400 uppercase leading-none">NARRATIVE (EN)</span>
+                                                        <button onClick={() => speak(item.en, `h-${idx}`)} className="text-slate-500 hover:text-white transition-all"><Icon name="play" size={10} fill="currentColor"/></button>
+                                                    </div>
+                                                    <div className="italic font-semibold text-xs leading-relaxed"><InteractiveText text={item.en} /></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {activeTab === 4 && (
+                                <div className="space-y-3 animate-in">
+                                    <SectionHeader title={tabs[4].name} desc={tabs[4].desc} onAdd={() => addItem('reverse_qs')} />
+                                    {data.reverse_qs.map((rq, idx) => (
+                                        <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm group">
+                                            <ItemSubject index={idx} title={rq.zh} onChange={(v) => { const nd={...data}; nd.reverse_qs[idx].zh=v; setData(nd); }} onSync={() => syncEnglish('reverse_qs', idx)} onDelete={() => deleteItem('reverse_qs', idx)} />
+                                            <div className="bg-slate-800 p-3 rounded-xl flex items-center gap-3 border border-slate-700 mt-2 relative overflow-hidden shadow-inner">
+                                                {(syncTarget === `reverse_qs-${idx}` || apiStatus === 'blocked') && <LoadingOverlay dark />}
+                                                <button onClick={() => speak(rq.en, `rq-${idx}`)} className="shrink-0 text-slate-500 hover:text-white transition-all"><Icon name="mic" size={12}/></button>
+                                                <div className="text-white font-medium italic text-[12px] leading-tight"><InteractiveText text={rq.en} /></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {activeTab === 5 && (
+                                <div className="space-y-4 animate-in">
+                                    <SectionHeader title={tabs[5].name} desc={tabs[5].desc} onSyncAI={generateVocabulary} />
+                                    <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm divide-y divide-slate-50 max-h-[600px] overflow-y-auto custom-scrollbar relative">
+                                        {(syncTarget === 'vocabulary' || apiStatus === 'blocked') && <div className="sticky top-0 w-full z-20"><LoadingOverlay /></div>}
+                                        {data.vocabulary.map((v, idx) => (
+                                            <div key={idx} className="p-4 flex flex-col md:flex-row items-center gap-5 group hover:bg-slate-50 transition-colors">
+                                                <div className="w-full md:w-40 shrink-0">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-sm font-black text-slate-900 tracking-tighter uppercase">{v.word}</span>
+                                                        <button onClick={() => speak(v.word, `v-${idx}`)} className="text-slate-300 group-hover:text-indigo-600 transition-all"><Icon name="volume-2" size={12}/></button>
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-indigo-600 font-black text-[9px] bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100/50 leading-none">{v.zh}</span>
+                                                        <button onClick={() => { const nd={...data}; nd.vocabulary.splice(idx,1); setData(nd); }} className="text-rose-200 opacity-0 group-hover:opacity-100 hover:text-rose-500 p-1 transition-all"><Icon name="x" size={12}/></button>
+                                                    </div>
+                                                </div>
+                                                <div className="flex-1 bg-slate-50/50 p-3 rounded-2xl italic text-slate-600 font-bold text-[12px] border border-slate-100 shadow-inner">
+                                                    {v.desc}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {data.vocabulary.length === 0 && <div className="p-20 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">Vocabulary Assets Empty</div>}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </main>
                 </div>
             );
